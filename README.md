@@ -10,19 +10,17 @@ A financial advisor dashboard built with **React**, **Vite**, and **Tailwind CSS
 ## 🛠️ Complete Setup & Contribution Guide (All-in-One)
 
 ```bash
-# 1. Check Node.js version
-node -v
 
-# 2. Clone the Repository
+# 1. Clone the Repository
 git clone https://github.com/Fimo0N/Financial_Advisior.git
 
-# 3. Go to project folder
-cd Financial_Advisior/fin-ai-dashboard
+# 2. Go to project folder
+cd Financial_Advisior
 
-# 4. Install Dependencies
+# 3. Install Dependencies
 npm install
 
-# 5. Run Development Server
+# 4. Run Development Server
 npm run dev
 # App runs at: http://localhost:5173
 
