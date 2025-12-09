@@ -1,110 +1,142 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { newsApiKey, geminiApiKey } from '/src/config/apiKeys.js';
+// Correct relative import path for apiKeys.js
+import { newsApiKey, geminiApiKey } from '../config/apiKeys.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { FileText, Calendar, Zap } from 'lucide-react';
+import { FileText, Calendar, Zap, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 
-// Initialize the Google Generative AI client
+// Using gemini-2.5-flash for speed and reliability
 const genAI = new GoogleGenerativeAI(geminiApiKey);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-// --- Helper function to analyze a single article with Gemini ---
 const analyzeArticleWithGemini = async (article) => {
-    const prompt = `Analyze the sentiment of this financial news headline for an investor. Also, provide a one-sentence summary of its potential financial impact. 
-    Headline: "${article.title}"
+    // Prompt asking for specific sentiment and a concise insight
+    const prompt = `Analyze this financial news headline: "${article.title}".
+    1. Determine the Sentiment (Positive, Negative, or Neutral).
+    2. Provide a 1-sentence "Insight" on why this matters for investors.
     
-    Return your response as a JSON object with two keys: "sentiment" (can be "Positive", "Neutral", or "Negative") and "summary".`;
+    Return JSON only: { "sentiment": "Positive" | "Negative" | "Neutral", "summary": "Your insight here." }`;
 
     try {
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
         
-        // Clean the text and parse the JSON
+        // Clean markdown formatting if present
         const jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
         const analysis = JSON.parse(jsonString);
 
-        return { ...article, ...analysis }; // Combine original article with AI analysis
+        return { ...article, ...analysis };
     } catch (error) {
-        console.error("Error analyzing with Gemini:", error);
-        return { ...article, sentiment: "Neutral", summary: "AI analysis could not be performed for this article." };
+        console.error("Gemini Analysis Error:", error);
+        return { ...article, sentiment: "Neutral", summary: "Analysis unavailable." };
     }
 };
 
-// --- FinancialNewsScreen Component ---
 const FinancialNewsScreen = () => {
     const [articles, setArticles] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    // Track which article has the summary expanded
+    const [openSummaryId, setOpenSummaryId] = useState(null);
 
     useEffect(() => {
-        const fetchAndAnalyzeNews = async () => {
+        const fetchNews = async () => {
             setIsLoading(true);
             try {
-                // Step 1: Fetch news from the News API
                 const newsUrl = `https://newsapi.org/v2/top-headlines?country=us&category=business&apiKey=${newsApiKey}`;
-                const newsResponse = await axios.get(newsUrl);
-                const fetchedArticles = newsResponse.data.articles.slice(0, 10); // Get top 10 articles
-
-                // Step 2: Analyze each article with Gemini
-                const analyzedArticlesPromises = fetchedArticles.map(analyzeArticleWithGemini);
-                const settledArticles = await Promise.all(analyzedArticlesPromises);
+                const response = await axios.get(newsUrl);
                 
-                setArticles(settledArticles);
+                // Analyze top 5 articles to save API quota/time
+                const rawArticles = response.data.articles.slice(0, 5);
+                
+                const analyzedArticles = await Promise.all(rawArticles.map(analyzeArticleWithGemini));
+                setArticles(analyzedArticles);
             } catch (error) {
-                console.error("Error fetching or analyzing news:", error);
+                console.error("News Fetch Error:", error);
             } finally {
                 setIsLoading(false);
             }
         };
 
-        fetchAndAnalyzeNews();
+        fetchNews();
     }, []);
 
-    // Helper to get styling for sentiment tags
-    const getSentimentStyle = (sentiment) => {
+    const toggleSummary = (index) => {
+        setOpenSummaryId(openSummaryId === index ? null : index);
+    };
+
+    const getSentimentColor = (sentiment) => {
         switch (sentiment) {
-            case 'Positive':
-                return { bg: 'bg-green-100 dark:bg-green-900', text: 'text-green-800 dark:text-green-200', emoji: '🤩' };
-            case 'Negative':
-                return { bg: 'bg-red-100 dark:bg-red-900', text: 'text-red-800 dark:text-red-200', emoji: '😭' };
-            default:
-                return { bg: 'bg-blue-100 dark:bg-blue-900', text: 'text-blue-800 dark:text-blue-200', emoji: '😐' };
+            case 'Positive': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-green-200';
+            case 'Negative': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 border-red-200';
+            default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200 border-gray-200';
         }
     };
 
     return (
-        <div>
-            <h2 className="text-3xl font-bold text-gray-800 dark:text-white mb-6">AI-Powered Financial News</h2>
+        <div className="max-w-4xl mx-auto">
+            <h2 className="text-3xl font-bold text-gray-800 dark:text-white mb-6 flex items-center">
+                <div className="bg-blue-500 w-2 h-8 mr-3 rounded-full"></div>
+                AI Financial News
+            </h2>
+
             {isLoading ? (
-                <p className="text-center text-gray-500 dark:text-gray-400">Fetching and analyzing news...</p>
+                <div className="flex flex-col items-center justify-center h-64 space-y-4">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-500"></div>
+                    <p className="text-gray-500 dark:text-gray-400 font-medium">Analyzing market sentiment...</p>
+                </div>
             ) : (
                 <div className="space-y-6">
-                    {articles.map((article, index) => {
-                        const { bg, text, emoji } = getSentimentStyle(article.sentiment);
-                        return (
-                            <div key={index} className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 hover:shadow-xl transition-shadow duration-300">
-                                <div className="flex justify-between items-start mb-2">
-                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${bg} ${text}`}>
-                                        {emoji} <span className="ml-2">{article.sentiment || 'Neutral'}</span>
-                                    </span>
-                                    <div className="text-xs text-gray-400 dark:text-gray-500 flex items-center">
-                                        <Calendar className="w-4 h-4 mr-1" />
-                                        {new Date(article.publishedAt).toLocaleDateString()}
-                                    </div>
-                                </div>
-                                <a href={article.url} target="_blank" rel="noopener noreferrer" className="text-xl font-bold text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                                    {article.title}
-                                </a>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 flex items-center">
-                                    <FileText className="w-4 h-4 mr-2" />{article.source.name}
-                                </p>
-                                <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                    <p className="font-bold text-gray-800 dark:text-white flex items-center"><Zap className="w-4 h-4 mr-2 text-yellow-500"/>AI Summary</p>
-                                    <p className="text-gray-600 dark:text-gray-300 text-sm mt-1">{article.summary || 'Summary not available.'}</p>
+                    {articles.map((article, index) => (
+                        <div key={index} className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 transition-all hover:shadow-xl">
+                            {/* Header: Sentiment & Date */}
+                            <div className="flex justify-between items-start mb-3">
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${getSentimentColor(article.sentiment)}`}>
+                                    {article.sentiment}
+                                </span>
+                                <div className="text-xs text-gray-400 flex items-center">
+                                    <Calendar className="w-3 h-3 mr-1" />
+                                    {new Date(article.publishedAt).toLocaleDateString()}
                                 </div>
                             </div>
-                        );
-                    })}
+
+                            {/* Title */}
+                            <a href={article.url} target="_blank" rel="noopener noreferrer" className="block text-xl font-bold text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors mb-2 leading-tight">
+                                {article.title}
+                            </a>
+
+                            {/* Source */}
+                            <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 mb-4">
+                                <FileText className="w-4 h-4 mr-1" />
+                                {article.source.name}
+                            </div>
+
+                            {/* Insight Button */}
+                            <button 
+                                onClick={() => toggleSummary(index)}
+                                className="w-full flex items-center justify-center py-2 px-4 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg text-sm font-semibold text-gray-700 dark:text-gray-200 transition-colors group"
+                            >
+                                <Zap className={`w-4 h-4 mr-2 ${openSummaryId === index ? 'text-yellow-500 fill-yellow-500' : 'text-gray-400 group-hover:text-yellow-500'}`} />
+                                {openSummaryId === index ? 'Hide AI Insight' : 'Show AI Insight'}
+                                {openSummaryId === index ? <ChevronUp className="w-4 h-4 ml-2" /> : <ChevronDown className="w-4 h-4 ml-2" />}
+                            </button>
+
+                            {/* Expandable Summary */}
+                            {openSummaryId === index && (
+                                <div className="mt-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl animate-in fade-in slide-in-from-top-2 duration-200">
+                                    <div className="flex items-start gap-3">
+                                        <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                                        <div>
+                                            <p className="text-sm font-bold text-blue-800 dark:text-blue-300 mb-1">Analyst Take</p>
+                                            <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">
+                                                {article.summary}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ))}
                 </div>
             )}
         </div>
@@ -112,5 +144,3 @@ const FinancialNewsScreen = () => {
 };
 
 export default FinancialNewsScreen;
-
-
