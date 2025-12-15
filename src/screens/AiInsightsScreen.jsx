@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 // UPDATED: Import the new API key
-import { geminiApiKey, newsApiKey, twelveDataApiKey } from '../config/apiKeys.js';
+import { geminiApiKey1, newsApiKey, twelveDataApiKey } from '../config/apiKeys.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import axios from 'axios';
 import { Bot, User, Send, Loader2, FileText, Sparkles, ShieldCheck, SearchCheck } from 'lucide-react';
 
 // Initialize the Google Generative AI client
-const genAI = new GoogleGenerativeAI(geminiApiKey);
+const genAI = new GoogleGenerativeAI(geminiApiKey1);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 // --- Helper function to format AI responses ---
@@ -60,6 +60,21 @@ const ConversationalAdvice = () => {
     const [analysisMode, setAnalysisMode] = useState(false);
     const chatEndRef = useRef(null);
 
+    // Load chat history from backend
+    useEffect(() => {
+        const fetchHistory = async () => {
+            try {
+                const response = await axios.get('http://localhost:3000/api/chat');
+                if (response.data.data) {
+                    setConversation(response.data.data);
+                }
+            } catch (error) {
+                console.error("Failed to load chat history:", error);
+            }
+        };
+        fetchHistory();
+    }, []);
+
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [conversation]);
@@ -72,6 +87,13 @@ const ConversationalAdvice = () => {
         setUserInput('');
         setConversation(prev => [...prev, userMessage]);
 
+        // Save user message
+        try {
+            await axios.post('http://localhost:3000/api/chat', userMessage);
+        } catch (error) {
+            console.error("Failed to save user message:", error);
+        }
+
         if (analysisMode) {
             await handleAnalysisMode(userInput);
         } else {
@@ -79,7 +101,7 @@ const ConversationalAdvice = () => {
         }
         setIsLoading(false);
     };
-    
+
     const handleStandardChat = async (message) => {
         const updatedConversation = [...conversation, { role: 'user', text: message }];
         try {
@@ -90,7 +112,12 @@ const ConversationalAdvice = () => {
             const result = await model.generateContent({ contents: chatHistory });
             const response = result.response;
             const aiText = response.text();
-            setConversation(prev => [...prev, { role: 'model', text: aiText }]);
+
+            const aiMessage = { role: 'model', text: aiText };
+            setConversation(prev => [...prev, aiMessage]);
+
+            // Save AI message
+            await axios.post('http://localhost:3000/api/chat', aiMessage);
         } catch (error) {
             console.error("Error in standard chat:", error);
             setConversation(prev => [...prev, { role: 'model', text: 'Sorry, I encountered an error.' }]);
@@ -99,7 +126,7 @@ const ConversationalAdvice = () => {
 
     const handleAnalysisMode = async (message) => {
         const entityPrompt = `Analyze the user's request. Identify the core company or product they are asking about. Return a JSON object with two keys: "searchQuery" for the News API (e.g., 'Take-Two Interactive OR GTA VI') and "stockSymbol" for the Market Data API (e.g., 'TTWO'). If you can't determine a stock symbol, return null for that key. User Request: '${message}'`;
-        
+
         setConversation(prev => [...prev, { role: 'model', text: 'Analyzing your request and gathering real-time data...', isStatus: true }]);
 
         try {
@@ -125,7 +152,7 @@ const ConversationalAdvice = () => {
             const stockData = stockResponse.data;
             // UPDATED: Parsing the new response structure
             const price = (stockData && stockData.close) ? stockData.close : 'Not found';
-            
+
             setConversation(prev => [...prev, { role: 'model', text: `Found data for ${entities.stockSymbol}. Now generating analysis...`, isStatus: true }]);
 
             const analysisPrompt = `You are a concise financial analyst. Based ONLY on the following real-time data, provide an investment analysis for the user's request: "${message}".
@@ -136,16 +163,21 @@ const ConversationalAdvice = () => {
                 - "${headlines.join('"\n                - "')}"
             
             Return a JSON object with two keys: "analysisText" (a brief, to-the-point summary with pros and cons, formatted using markdown) and "overallSentiment" (one word: "Positive", "Negative", or "Neutral").`;
-            
+
             const finalResult = await model.generateContent(analysisPrompt);
             const finalText = finalResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
             const analysisData = JSON.parse(finalText);
-            
-            setConversation(prev => [...prev, { 
-                role: 'model', 
-                text: analysisData.analysisText, 
-                sentiment: analysisData.overallSentiment 
-            }]);
+
+            const finalAnalysis = {
+                role: 'model',
+                text: analysisData.analysisText,
+                sentiment: analysisData.overallSentiment
+            };
+
+            setConversation(prev => [...prev, finalAnalysis]);
+
+            // Save Final Analysis
+            await axios.post('http://localhost:3000/api/chat', finalAnalysis);
 
         } catch (error) {
             console.error("Error in analysis mode:", error);
@@ -160,7 +192,7 @@ const ConversationalAdvice = () => {
                     <div key={index} className={`flex items-end gap-3 my-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         {msg.role === 'model' && !msg.isStatus && <Bot className="w-8 h-8 text-blue-500 flex-shrink-0" />}
                         {msg.isStatus && <SearchCheck className="w-8 h-8 text-purple-500 flex-shrink-0 animate-pulse" />}
-                        
+
                         <div className={`p-4 rounded-2xl max-w-lg ${msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white'} ${msg.isStatus ? 'bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200' : ''}`}>
                             {msg.role === 'model' ? <FormattedAiResponse text={msg.text} /> : msg.text}
                         </div>
@@ -172,7 +204,7 @@ const ConversationalAdvice = () => {
                                 ${msg.sentiment === 'Neutral' ? 'bg-gray-500' : ''}
                             `}></div>
                         )}
-                        
+
                         {msg.role === 'user' && <User className="w-8 h-8 text-gray-500 flex-shrink-0" />}
                     </div>
                 ))}
@@ -204,7 +236,7 @@ const DocumentAnalyzer = () => {
     return (
         <div className="flex flex-col lg:flex-row gap-6 h-[60vh]">
             <div className="flex-1 flex flex-col">
-                <h3 className="text-xl font-semibold mb-3 text-gray-800 dark:text-white flex items-center"><FileText className="mr-2"/> Paste Your Document Here</h3>
+                <h3 className="text-xl font-semibold mb-3 text-gray-800 dark:text-white flex items-center"><FileText className="mr-2" /> Paste Your Document Here</h3>
                 <textarea
                     placeholder="Paste the content of a financial report, news article, or earnings call transcript..."
                     className="flex-1 p-4 border border-gray-300 dark:border-gray-600 rounded-lg resize-none custom-scrollbar focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
@@ -212,12 +244,12 @@ const DocumentAnalyzer = () => {
                 <button
                     className="mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition-all duration-200 disabled:bg-gray-400 flex items-center justify-center"
                 >
-                     <Sparkles className="mr-2" />
-                     Generate Summary
+                    <Sparkles className="mr-2" />
+                    Generate Summary
                 </button>
             </div>
             <div className="flex-1 flex flex-col">
-                <h3 className="text-xl font-semibold mb-3 text-gray-800 dark:text-white flex items-center"><Sparkles className="mr-2 text-yellow-500"/> AI Summary</h3>
+                <h3 className="text-xl font-semibold mb-3 text-gray-800 dark:text-white flex items-center"><Sparkles className="mr-2 text-yellow-500" /> AI Summary</h3>
                 <div className="flex-1 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 custom-scrollbar">
                     <p className="text-gray-400">Your summary will appear here.</p>
                 </div>
@@ -232,15 +264,15 @@ const RiskModeling = () => {
             <div className="space-y-4 mb-4">
                 <div>
                     <label htmlFor="inflation-rate" className="block text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Target Inflation Rate (%)</label>
-                    <input 
+                    <input
                         type="number"
                         id="inflation-rate"
                         className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
                     />
                 </div>
-                 <div>
+                <div>
                     <label htmlFor="scenario" className="block text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Economic Scenario</label>
-                    <select 
+                    <select
                         id="scenario"
                         className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
                     >
@@ -258,7 +290,7 @@ const RiskModeling = () => {
                 </button>
             </div>
             <div className="flex-1 flex flex-col">
-                <h3 className="text-xl font-semibold mb-3 text-gray-800 dark:text-white flex items-center"><Sparkles className="mr-2 text-yellow-500"/> AI Analysis</h3>
+                <h3 className="text-xl font-semibold mb-3 text-gray-800 dark:text-white flex items-center"><Sparkles className="mr-2 text-yellow-500" /> AI Analysis</h3>
                 <div className="flex-1 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 custom-scrollbar">
                     <p className="text-gray-400">Your risk analysis will appear here.</p>
                 </div>
