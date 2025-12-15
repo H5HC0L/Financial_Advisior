@@ -15,7 +15,19 @@ const db = new sqlite3.Database(dbPath, (err) => {
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )`, (err) => {
             if (err) {
-                console.error("Error creating table", err);
+                console.error("Error creating messages table", err);
+            }
+        });
+
+        db.run(`CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT,
+            shares REAL,
+            price_at_purchase REAL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`, (err) => {
+            if (err) {
+                console.error("Error creating transactions table", err);
             }
         });
     }
